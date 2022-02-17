@@ -1,0 +1,308 @@
+---
+title: "Analysis of Wine Reviews"
+author: "Ren Hasegawa, Futaba Kikuchi, Tomotaka Harada"
+date: "12/10/2021"
+output:
+  html_document:
+    fig_width: 8
+    code_folding: hide
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: true
+---
+
+
+```{r setup, include=FALSE}
+library(sampling)
+library(jsonlite)
+library(tidyverse)
+library(dplyr)
+library(plotly)
+library(knitr)
+library(wordcloud2)
+library(maps)
+library(countrycode)
+library(qdap)
+
+knitr::opts_chunk$set(fig.width=8, fig.height=4,
+                      echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+
+# Introduction
+
+## Data Set Overview
+The following data set was scraped from WineEnthusiast during the week of November 22nd, 2017. This data set was retrieved from Kaggle. The data set includes country, points, price designation, taster name, title, variety.
+
+## Goal of Analysis
+The goal of the analysis of this data is to offer some great opportunities for sentiment analysis and other text related predictive models. The overall goal is to create a model that can identify which countries are producing the most high point and high price wines．Finally, you can create a predictive model to identify wines through blind tasting like a master sommelier would. 
+
+## Summary
+“Summary is a generic function used to produce result summaries of the results of various model fitting functions.” As for the price of wine, the average is $ 35.36, but the cheapest one is $ 4 and the highest one is $ 3,300, which shows that there is a lot of variation. On the other hand, regarding the points of wine, the average is 88.42, the minimum value is 80, and the maximum value is 100, which shows that the variation is not so large.
+
+```{r echo=TRUE}
+data <- fromJSON('./winemag-data-130k-v2.json')
+data$points <- as.numeric(data$points)
+data$price <- as.numeric(data$price)
+data$country <- as.factor(data$country)
+data$title <- as.factor(data$title)
+data[is.na(data$price)==F, c('price', 'points', 'country', 'title')] %>%
+  summary()  
+```
+
+# Wine Points Distribution
+
+## Central Limit Theorem
+“The Central Limit Theorem states that the distribution of the sample means for a given sample size of the population has the shape of the normal distribution. The theorem is shown with various distributions of the input data in the following sections.” In other words, as the sample size gets larger, the means of the samples become a normal distribution. This was tested against the points distributions of wine. Below is a figure showing the distributions of 1000 random samples of sample sizes of 10, 20, 30, and 40. 
+
+```{r echo=TRUE}
+#cat("Mean = ", mean(data$points),
+#    " SD = ", sd(data$points), "\n")
+samples <- 1000
+xbar <- numeric(samples)
+par(mfrow = c(2,2))
+for (i in c(10, 20, 30, 40)) {
+  for (j in 1:samples) {
+    xbar[j] <- mean(sample(data$points, i, replace = FALSE))
+  }
+  cat("Sample Size = ", i, " Mean = ", round(mean(xbar), 4),
+      " SD = ", sd(xbar), "\n")
+  
+  hist(xbar, prob = TRUE, breaks = 15,
+       main = paste("Sample Size =", i),
+       col = i / 10 + 1, xlim = c(85,95),
+       xlab="points",ylab="")
+  abline(h=0)
+  
+  
+}
+par(mfrow = c(1,1))
+```
+
+### Price Version
+Similar to wine points, The below four means are in close agreement with the original mean. Also, the standard deviation becomes smaller as the sample size increases.
+
+```{r echo=TRUE}
+samples <- 1000
+xbar <- numeric(samples)
+par(mfrow = c(2,2))
+for (i in c(10, 20, 30, 40)) {
+  for (j in 1:samples) {
+    xbar[j] <- mean(sample(data[is.na(data$price)==F, 'price'], i, replace = FALSE))
+  }
+  cat("Sample Size = ", i, " Mean = ", round(mean(xbar), 4),
+      " SD = ", sd(xbar), "\n")
+  
+  hist(xbar, prob = TRUE, breaks = 15,
+       main = paste("Sample Size =", i),
+       col = i / 10 + 1, xlim = c(0,100),
+       xlab="price",ylab="")
+  abline(h=0)
+  
+  
+}
+par(mfrow = c(1,1))
+```
+
+## Sampling
+Sampling is used to identify and analyze any trends or patterns that can be seen in a subset of a larger group of data. It can also be useful technique to help predict some type of data or information. There are many different types of sampling that can be applied to data. The sampling methods used for this analysis are simple random sampling without replacement, systematic, and stratified by country. Comparing the average values of each of the four, all average values are around 88.3. This analysis are simple random sampling without replacement, systematic, and stratified. 
+
+```{r echo=TRUE}
+##sampling
+p0 <- plot_ly(data, x = ~points, type = "histogram", name="All Wine")
+n <- 100
+#simple random sampling without replacement
+s1 <- srswor(n, nrow(data))
+sample.1 <- data[s1!=0, ]
+p1 <- plot_ly(sample.1, x = ~points, type = "histogram", name="Simple Random Sampling")
+#systematic sampling
+k <- ceiling(nrow(data)/n)
+r <- k - sample(k, 1)
+s2 <- seq(r, by=k, length=n)
+sample.2 <- data[s2, ]
+p2 <- plot_ly(sample.2, x = ~points, type = "histogram", name="Systematic Sampling")
+#Stratified Sampling by country
+sample.3 <- data %>%
+  group_by(country) %>%
+  sample_frac(n / nrow(data))
+p3 <- plot_ly(sample.3, x = ~points, type = "histogram", name="Stratified Sampling")
+
+subplot(p0, p1, p2, p3, nrows = 4, shareX = TRUE)
+cat("All Wine" , " Mean = ", round(mean(data$points), 4),
+    " SD = ", sd(data$points),sep = "")
+cat("simple random sampling without replacement" , " Mean = ",
+    round(mean(sample.1$points), 4),
+    " SD = ", sd(sample.1$points),sep = "")
+cat("systematic sampling" , " Mean = ", round(mean(sample.2$points), 4),
+    " SD = ", sd(sample.2$points),sep = "")
+cat("Stratified Sampling by country" , " Mean = ", round(mean(sample.3$points), 4),
+    " SD = ", sd(sample.3$points),sep = "")
+```
+
+### Price Version
+In contrast to the points, there are differences in the mean and standard deviation depending on the sampling method. Stratified Sampling is closest to the original ones, and as can be seen from the distribution by country described below, there is some correlation between wine price and country.
+
+```{r echo=TRUE}
+data2 <- data[is.na(data$price)==F, ]
+##sampling
+p4 <- plot_ly(data2, x = ~price, type = "histogram", name="All Wine")
+n <- 100
+#simple random sampling without replacement
+s4 <- srswor(n, nrow(data2))
+sample.4 <- data2[s4!=0, ]
+p5 <- plot_ly(sample.4, x = ~price, type = "histogram", name="Simple Random Sampling")
+#systematic sampling
+k2 <- ceiling(nrow(data2)/n)
+r2 <- k2 - sample(k2, 1)
+s5 <- seq(r2, by=k2, length=n)
+sample.5 <- data2[s5, ]
+p6 <- plot_ly(sample.5, x = ~price, type = "histogram", name="Systematic Sampling")
+#Stratified Sampling by country
+sample.6 <- data2 %>%
+  group_by(country) %>%
+  sample_frac(n / nrow(data2))
+p7 <- plot_ly(sample.6, x = ~price, type = "histogram", name="Stratified Sampling")
+
+subplot(p4, p5, p6, p7, nrows = 4, shareX = TRUE)
+cat("All Wine" , " Mean = ", round(mean(data2$price), 4),
+    " SD = ", sd(data2$price),sep = "")
+cat("simple random sampling without replacement" , " Mean = ",
+    round(mean(sample.4$price), 4),
+    " SD = ", sd(sample.4$price),sep = "")
+cat("systematic sampling" , " Mean = ", round(mean(sample.5$price), 4),
+    " SD = ", sd(sample.5$price),sep = "")
+cat("Stratified Sampling by country" , " Mean = ", round(mean(sample.6$price), 4),
+    " SD = ", sd(sample.6$price),sep = "")
+```
+
+# Wine Price Comparison
+
+## Top 20 Expensive Wines
+The following table shows the 20 most expensive wines. When you look at the country of origin, you can see that many wines are made in France. Other than France, you can see Portugal and Austria as the origin of wines. It means that most of the fine wines are made in Europe. The highest $ 3,300 wine point is 88. On the other hand, you can see that the $ 1500 wine scored 100 points. Thus, the higher the price is, the higher the score of the sommelier does not necessarily mean.
+
+```{r echo=TRUE}
+exp_wine = data[is.na(data$price)==F, ] %>%
+  select(title, country, price, points) %>%
+  filter(title != '') %>%
+  mutate(price = as.integer(price)) %>%
+  arrange(desc(price)) %>%
+  head(20)
+knitr::kable(exp_wine[1:20, c("title", "country", "price", "points")])
+```
+
+## Prices in the Top 10 Countries with the Most Wine Varieties
+The following graph shows the prices in the top 10 countries with the most wine varieties. First, I made a table of wine data based on the country of origin. Next, we extracted the top 10 countries with the most wine types. Next, I took the natural logarithm of the prices of wines from those countries and arranged them in a box plot. If the graph is created using the price data as it is, the data range of the box plot in France will be large, so the price is taken as a natural logarithm. The price variability in France is large, while that in Austria is small.
+
+```{r echo=TRUE}
+top10 <- names(sort(table(data$country), decreasing = T)[1:10])
+df <- data[!is.na(data$price) & data$country %in% top10, ]
+df$country <- factor(df$country, levels = top10)
+plot_ly(df[is.na(data$price)==F, ], x = ~log(price), 
+        color = ~country, type = "box") %>% 
+        layout(legend= list(traceorder= "reversed"))
+```
+
+## Average Price of Wine by Country
+As can be seen from the figure, the average price of wine is higher in the Americas and European countries. It is often thought that France has the highest average price, but in fact Switzerland has the highest average price, although it is difficult to see from the map.
+
+```{r echo=TRUE}
+world_data = data[is.na(data$price)==F, ] %>% 
+  select(price, country) %>%               
+  group_by(country) %>%
+  summarise(Count = n(), Avg_Price = mean(price))
+MAP <- list('US' = "United States")
+MAP <- list('England' = "United Kingdom")
+world_data$country <- dplyr::recode(world_data$country, !!!MAP)
+map <- world_data[is.na(world_data$country)==F, c("country", "Avg_Price")]
+map <- map %>% 
+  mutate(iso3c = countrycode(sourcevar = country, origin = "country.name", destination = "iso3c"))
+world <- map_data("world")
+world <- world %>% 
+  mutate(iso3c = countrycode(sourcevar = region, origin = "country.name", destination = "iso3c"))
+left_join(world, map, by = "iso3c") %>% 
+  ggplot() + 
+  geom_polygon(aes(x = long, y = lat, group = group, fill = Avg_Price),
+               colour = "black", size = 0.1) + 
+  scale_fill_continuous(name = "Average Wine Price", low = "lightblue", high = "darkblue")
+```
+
+## Countries that makes Expensive Wines
+The following  graph shows the county of the origin of the fine wines. First, we arranged the wine data in descending order of price and extracted 200 wines from the top.Next, we made the following graph of those 200 data by country. As a result, it was found that more than half of the fine wines are made in France.  
+
+```{r echo=TRUE}
+exp_wine <-  data[is.na(data$country)==F, ] %>%
+  select(price, country) %>%
+  arrange(desc(price)) %>%
+  head(200) %>%
+  group_by(country) %>% 
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  head(10)
+exp_wine10_name <- names(sort(table(exp_wine$country), decreasing = T)[1:10])
+exp_wine10 <- exp_wine[exp_wine$country %in% exp_wine10_name, ]
+plot_ly(exp_wine10, labels = ~country, values = ~count, type = 'pie',
+        textposition = 'inside',
+        textinfo = 'label+percent',
+        showlegend = FALSE)
+```
+
+# Impact on Wine Evaluation
+
+## Wine Evaluation by Sommeliers
+The box plot below illustrates the distribution of evaluation points for wines by sommelier. It can be seen that there is variation in rating between sommeliers. In particular, you can see that Roger Voss has a wide range of scores, while Alexander Peartee has many dry ratings.
+
+```{r echo=TRUE}
+ggplot(data[is.na(data$taster_name)==F, ], 
+       aes(reorder(taster_name, points), points, fill = taster_name))+
+  geom_boxplot() + coord_flip() +
+  theme(legend.position = 'none')+xlab("sommeliers")
+```
+
+## The Top 10 Grape Varieties used in Highly Rated Wines
+This bar chart shows the top 10 grape varieties used in wines with 90 points or more. Pinot Noir and Chardonnay, which are ranked first and second, are both grapes that originated in the Burgundy region of France.
+
+```{r echo=TRUE}
+over90 <- data %>% filter(points >= 90)
+var_ = over90[ , (names(over90) %in% "variety")]
+good_flavers = over90 %>% 
+  select(variety) %>%
+  filter(variety != '' & variety != ' ') %>%
+  mutate(grape_variety = var_) %>%
+  group_by(grape_variety) %>%
+  summarise(count = n())%>%
+  arrange(desc(count)) %>%
+  head(10)
+plot_ly(good_flavers, x = ~count, y = ~reorder(grape_variety, count),
+        color = ~grape_variety, type = 'bar',  orientation = 'h',
+        showlegend = FALSE)%>%
+  layout(title = '', xaxis = list(title = 'counts'), 
+         yaxis = list(title = ''))
+```
+
+## The Correlation between Wine Price and Points
+The following scatter plots illustrate the relationship between wine price and points. The graph on the left doesn't tell us anything because of the wide variation in price, but the graph on the right, with price on a log scale, shows a positive correlation, with points increasing as price increases. However, a linear regression analysis reveals that the coefficient of determination is 0.3744, indicating that there is no strong correlation between wine price and points.
+
+```{r echo=TRUE}
+p11 <- plot_ly(data = data[is.na(data$price)==F, ], 
+        x = ~price, y = ~points, showlegend = FALSE)
+p12 <- plot_ly(data[is.na(data$price)==F, ],
+        x = ~log(price), y = ~points,
+        color = ~log(price), size = ~points, showlegend = FALSE)
+subplot(p11, p12, nrows = 1, titleY = TRUE, titleX = TRUE)
+fit <- lm(log(price) ~ points, data = data[is.na(data$price)==F, ])
+summary(fit)
+```
+
+## Wine Description
+The top 50 words used by sommeliers to describe wine, sorted by the number of times they were used, are shown below using WordCloud. If you remember these words, you will be able to describe the taste of wine like a sommelier.
+
+```{r echo=TRUE}
+word_count <- freq_terms(data$description, top = 50,
+                         stopwords = tm::stopwords('english'))
+word_count <- word_count %>% filter(WORD != 'wine')
+wordcloud2(word_count, color = "random-light", backgroundColor = "white")
+```
+
+# Conclusion
+Previous analysis has shown that wine prices and ratings are not uniquely determined, with significant differences depending on the country of production, the variety of grape, and even the sommelier who tasted the wine. From now on, when choosing a wine, I will not be swayed by price or reputation, but rather look for one that suits my own tastes.
