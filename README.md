@@ -1,4 +1,4 @@
-# CS544-Final-Project
+# CS544 Final Project
 
 ## Data Set Overview
 The following data set was scraped from WineEnthusiast during the week of November 22nd, 2017. This data set was retrieved from Kaggle. The data set includes country, points, price designation, taster name, title, variety.
